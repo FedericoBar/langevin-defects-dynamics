@@ -1,0 +1,240 @@
+**********************************************************************
+*
+*
+*   Cell with no defect but with boundary conditions
+*   equal to the opposite of those found by analytical resolution of
+*   a defect in infinite medium
+*
+*   Computing the solution
+*
+*                  L     F    t      RHO       sigma   (E)
+* SYSTEM of UNITS: m     N   sec    kg/m3       Pa     (J)
+*
+* SYSTEM 2?:       Å   eV/Å  sec    kg/Å3      ev/Å3    eV
+*
+**********************************************************************
+
+OPTI PARA VRAI;
+* We read the mesh from the file MESHING created by meshing.dgibi
+OPTI REST meshing;
+REST meshing;
+
+* We would like to pick these values from a file which
+* will be read by Cast3m and the python script
+* So that they are defined only once
+*
+* Data in param.txt is stored as N \t Nm \t Nloops \t nu \t E
+OPTI ACQU 'param.txt';
+ACQU data*LISTREEL 6;
+* Poisson ratio
+nuu = EXTR data 5;
+* Young modulus
+E = EXTR data 6;
+*Size of the box:
+Np = EXTR data 1;
+Nz = EXTR data 2;
+Nhalfp = Np/2.0;
+Nhalfz = Nz/2.0;
+
+* initialise the total moment from external forces
+Mtotx = 0; Mtoty = 0; Mtotz = 0;
+
+***********************************************************************
+* Linear elastic model / Isotropic material
+
+mod1 = MODE OmeR 'MECANIQUE' 'ELASTIQUE';
+
+mat1 = MATE mod1 'YOUNG' E 'NU' nuu;
+
+* Stiffness matrix
+k1 = RIGI mod1 mat1;
+
+* End material properties and hypothesis
+***********************************************************************
+
+***********************************************************************
+* Traction conditions/Fixing the box
+
+* Fetch the external loading condition and the moment generated on the
+* centre of mass
+OPTI 'IMPR' 42 'IMPR' 'inter.tmp';
+
+*** HERE ***
+
+OPTI 'IMPR' 6;
+
+* Don't forget to take the area of each node into account
+* divided by 3 because we use quadratic shape functions
+Mtotx = Mtotx * area/3; Mtoty = Mtoty * area/3; Mtotz = Mtotz * area/3;
+
+
+* Compute the norm of the resulting moment
+normM = ((Mtotx**2) + (Mtoty**2) + (Mtotz**2))**0.5;
+
+* The loading has to be multiplied by the average area on which a node sits
+* divided by 3 because we use quadratic shape functions
+
+Fload = Fload * area/3;
+
+*TRAC Fload OmeR;
+
+* Show the vectors representing the traction conditions
+q = VECT Fload 'FORC' 'VERT';
+* TRAC q OmeR;
+
+* Fixing the displacement of the centre
+clt = BLOQ 'DEPL' pclose;
+* Fixing the rotation of the centre
+clr1 = BLOQ 'UY' 'UZ' pclosx;
+clr2 = BLOQ 'UZ' pclosy;
+clr = clr1 ET clr2;
+
+
+* End traction conditions/Fixing the box
+***********************************************************************
+
+***********************************************************************
+* Balancing forces:
+* Rotation
+* Unit forces describing the cylinder for the rotation balancing
+* and total moment from internal "circular forces" (computed in the centre of mass)
+*
+* To find the direction of the vector, we compute the cross product between r(x y z)
+* and the resulting moment from external forces.
+* This way we create a cylindrical system which z axis is the direction of the moment.
+*
+
+* Initialize the internal balancing forces and generated moment
+Frota = VIDE CHPOINT/DISC;
+Mmagx = 0; Mmagy = 0; Mmagz = 0;
+
+ind = 0;
+REPE bloc (NBNO OmePoi);
+ind = ind + 1;
+
+* Which node are we on?
+node = OmePoi POIN ind;
+* Its coordinates
+nox noy noz = COOR node;
+
+
+* Let's make centre of mass the origin of our pb
+nox = nox - Nhalfp; noy = noy - Nhalfp; noz = noz - Nhalfz;
+* dot product: r(x y z).Mtot
+proj = (nox*Mtotx) + (noy*Mtoty) + (noz*Mtotz);
+* For the result to be a unit vector:
+* proj = proj/(normM**2);
+
+
+* Projection of r(x y z) on the direction of the moment vector
+nopx = proj*Mtotx; nopy = proj*Mtoty; nopz = proj*Mtotz;
+* Other component of r(x y z): r(x y z) = proj_M + ortho
+orthox = nox - nopx; orthoy = noy - nopy; orthoz = noz - nopz;
+* Its norm:
+normO = ((orthox**2) + (orthoy**2) + (orthoz**2))**0.5;
+
+
+* Cross product to create the missing ax in our cylindrical system
+Felemx = ((Mtoty*orthoz) + (-1*Mtotz*orthoy));
+Felemy = ((Mtotz*orthox) + (-1*Mtotx*orthoz));
+Felemz = ((Mtotx*orthoy) + (-1*Mtoty*orthox));
+normF = ((Felemx**2) + (Felemy**2) + (Felemz**2))**0.5;
+
+* The force is zero on the axis defined by the moment vector
+SI (normF EGA 0);
+Felem = FORC 'FX' 0 'FY' 0 'FZ' 0 node;
+Felemx = 0; Felemy = 0; Felemz = 0;
+SINON;
+*Felemx = Felemx/normF; Felemy = Felemy/normF; Felemz = Felemz/normF;
+Felem = FORC 'FX' Felemx 'FY' Felemy 'FZ' Felemz node;
+FINSI;
+
+* Add generated moment to each component:
+
+* Add the forces to the rotation balancing force
+Frota = Frota ET Felem;
+
+Mmagx = Mmagx + (noy*Felemz) + (-1*noz*Felemy);
+Mmagy = Mmagy + (noz*Felemx) + (-1*nox*Felemz);
+Mmagz = Mmagz + (nox*Felemy) + (-1*noy*Felemx);
+
+FIN bloc;
+Mmag = ((Mmagx**2) + (Mmagy**2) + (Mmagz**2))**0.5;
+
+* We balance the internal forces with the external ones:
+* Fmom is the constant force density (unknown before this point)
+
+
+* Give the appropriate magnitude to the balancing circular force
+SI (Mmag Ega 0);
+Frota = 0*Frota;
+SINON;
+Frota = -1*Frota/Mmag*normM;
+FINSI;
+
+* Translation
+* Total force from external forces and internal circular forces
+Fres = RESU (Fload);
+
+Ftranx = -1*(EXTR Fres 'FX' ((EXTR Fres MAILL) POIN 1));
+Ftrany = -1*(EXTR Fres 'FY' ((EXTR Fres MAILL) POIN 1));
+Ftranz = -1*(EXTR Fres 'FZ' ((EXTR Fres MAILL) POIN 1));
+
+Ftran = FORC 'FX' Ftranx 'FY' Ftrany 'FZ' Ftranz OmeR;
+
+* Visu the balancing Forces
+* Translation
+qtran = VECT Ftran 'FORC' 'VERT';
+*TRAC qtran OmeR;
+* Rotation
+qrota = VECT Frota 'FORC' 'VERT';
+*TRAC qrota OmeR;
+
+* End balancing forces
+***********************************************************************
+
+
+* test
+*Ftot = Frota;
+*ind = 0;
+*Mbalx = 0;Mbaly = 0;Mbalz = 0;
+*REPE bloc (NBNO OmePoi);
+*ind = ind + 1;
+* Which node are we on?
+*node = OmePoi POIN ind;
+* Its coordinates
+*nox noy noz = COOR node;
+
+* Let's make centre of mass the origin of our pb
+*nox = nox - Nhalf; noy = noy - Nhalf; noz = noz - Nhalf;
+
+*Ftotx = EXTR (Ftot) 'FX' (OmePoi POIN ind);
+*Ftoty = EXTR (Ftot) 'FY' (OmePoi POIN ind);
+*Ftotz = EXTR (Ftot) 'FZ' (OmePoi POIN ind);
+
+*Mbalx = Mbalx + (noy*Ftotz) + (-1*noz*Ftoty);
+*Mbaly = Mbaly + (noz*Ftotx) + (-1*nox*Ftotz);
+*Mbalz = Mbalz + (nox*Ftoty) + (-1*noy*Ftotx);
+
+*FIN bloc;
+
+*LIST Mbalx;LIST Mbaly;LIST Mbalz;
+*LIST Mtotx;LIST Mtoty;LIST Mtotz;
+
+*LIST (RESU (Fload ET Ftran));
+
+
+* Solve the system:
+* (K + clt + clr)U = (Fload + Ftran + Frota)
+
+uCorr = RESO (k1 ET clt ET clr) (Fload ET Ftran ET Frota);
+
+* Save the displacement and some useful data in a file called DISPCORR
+OPTI SAUV dispCorr;
+
+* Save some data for further processing
+SAUV uCorr;
+SAUV mod1;
+SAUV mat1;
+
+FIN;
