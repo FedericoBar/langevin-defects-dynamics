@@ -11,7 +11,7 @@ Output: Position of the dislocation loops during time
 
 """
 
-# Let's define the unit system
+# Let's define the unit system for the equation
 # L  T  E   F     cont
 # Å  s  eV  eV/Å  eV/Å3
 
