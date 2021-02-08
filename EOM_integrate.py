@@ -2,7 +2,6 @@
 """
 Author Federico Baraglia
 Date 08.02.2020
-branch list
 
 Resolution of overdamped Langevin Equation of Motion
 
@@ -11,7 +10,7 @@ Output: Position of the dislocation loops during time
 
 """
 
-# Let's define the unit system for the equation
+# Let's define the unit system
 # L  T  E   F     cont
 # Å  s  eV  eV/Å  eV/Å3
 
