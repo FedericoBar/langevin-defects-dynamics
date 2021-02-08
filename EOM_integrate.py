@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Author Federico Baraglia
-Date 27.2.2019
+Date 08.02.2020
 
 Resolution of overdamped Langevin Equation of Motion
 
